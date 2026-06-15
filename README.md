@@ -4,14 +4,14 @@ Edge pipeline untuk inferensi AI, rekaman go2rtc, dan sinkronisasi event ke serv
 
 ## Arsitektur
 
-- **go2rtc**: Stream proxy — dikonfigurasi **manual** di `config/go2rtc.yaml`
+- **go2rtc**: Stream proxy — dikonfigurasi di `go2rtc/cameras.yaml` (format `url`/`transport`), di-render otomatis ke `go2rtc.yaml`
 - **worker**: Fetch daftar kamera dari backend, inferensi AI, sync WebSocket
 - **SQLite**: Buffer lokal event (`PENDING` → `SENT` setelah ACK server)
 
 ## Setup
 
 1. Buat **Site** di Control Plane dan salin `api_key` dari Site Settings.
-2. Edit **`config/go2rtc.yaml`** — tambahkan stream RTSP per kamera (`{uuid}_main`, `{uuid}_sub`).
+2. Salin `go2rtc/cameras.yaml.example` → `go2rtc/cameras.yaml`, lalu tambahkan stream RTSP per kamera. Untuk worker somba-edge gunakan penamaan `{uuid}_main` / `{uuid}_sub`.
 3. Buat **Kamera** di master data:
    - `rtsp_url` — referensi RTSP (sama seperti di go2rtc.yaml)
    - `stream_url` — URL HLS `.m3u8` dari go2rtc (untuk Web UI)
@@ -22,12 +22,22 @@ Edge pipeline untuk inferensi AI, rekaman go2rtc, dan sinkronisasi event ke serv
 SERVER_API_URL=http://your-backend:3000
 SERVER_WS_URL=http://your-backend:3000
 EDGE_API_KEY=<api_key dari Site Settings>
-GO2RTC_URL=http://go2rtc:1984
+GO2RTC_URL=http://go2rtc:1988
 MODELS_DIR=/app/models
 ```
 
 ```bash
 docker compose up -d --build
+```
+
+### Docker build notes
+
+- Default image uses **CPU-only PyTorch** (`requirements.txt`) for faster, smaller builds on mini PCs without GPU.
+- If the mini PC has NVIDIA GPU + `nvidia-container-toolkit`, build with GPU PyTorch:
+
+```bash
+REQUIREMENTS_FILE=requirements-gpu.txt docker compose build --no-cache worker
+docker compose up -d
 ```
 
 ## Alur Data
@@ -45,4 +55,4 @@ Browser memuat `stream_url` langsung dari master data kamera — **tidak** melal
 
 1. Connect WebSocket `/edge` dengan `EDGE_API_KEY`
 2. `GET /edge/cameras` → daftar kamera untuk inferensi
-3. go2rtc **tidak** diatur otomatis oleh worker — edit `config/go2rtc.yaml` manual
+3. go2rtc **tidak** diatur otomatis oleh worker — edit `go2rtc/cameras.yaml` manual

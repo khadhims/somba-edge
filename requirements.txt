@@ -1,6 +1,11 @@
-ultralytics
-opencv-python
-requests
-python-dotenv
-boto3
-python-socketio[client]
+# CPU-only PyTorch — avoids large NVIDIA CUDA wheels (~2GB) during docker build.
+# For GPU inference, use requirements-gpu.txt instead (see README).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.2.0,<2.6
+torchvision>=0.17.0,<0.21
+ultralytics>=8.3.0,<9
+opencv-python-headless>=4.8.0,<5
+requests>=2.31.0
+python-dotenv>=1.0.0
+boto3>=1.34.0
+python-socketio[client]>=5.11.0

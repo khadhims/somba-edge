@@ -1,4 +1,6 @@
 .env
+go2rtc/cameras.yaml
+go2rtc/go2rtc.yaml
 venv/
 __pycache__/
 *.pyc
