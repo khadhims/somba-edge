@@ -1,20 +1,9 @@
 services:
-  go2rtc-config:
-    image: python:3.12-alpine
-    container_name: go2rtc-config
-    volumes:
-      - ./go2rtc:/work
-    command: sh -c "pip install -q pyyaml && python /work/generate_config.py"
-    restart: "no"
-
   go2rtc:
     image: alexxit/go2rtc
     container_name: go2rtc
     privileged: true
     restart: unless-stopped
-    depends_on:
-      go2rtc-config:
-        condition: service_completed_successfully
     ports:
       - "1988:1988"
       - "8558:8558"
