@@ -110,9 +110,12 @@ class CameraRecordingSession:
         if proc:
             try:
                 if proc.stdin:
-                    proc.stdin.write(b"q")
-                    proc.stdin.flush()
-                proc.wait(timeout=15)
+                    try:
+                        proc.stdin.write(b"q")
+                        proc.stdin.flush()
+                    except (BrokenPipeError, OSError):
+                        pass
+                proc.wait(timeout=10)
             except Exception:
                 proc.send_signal(signal.SIGINT)
                 try:
@@ -120,19 +123,39 @@ class CameraRecordingSession:
                 except Exception:
                     proc.kill()
 
+        # Beri jeda singkat agar OS selesai menulis file ke disk
+        time.sleep(1)
+
+        success = False
         if output_path and session_start and os.path.exists(output_path):
-            event_end = datetime.now()
-            duration_minutes = (event_end - session_start).total_seconds() / 60
-            self.on_finalize(
-                self.camera_uuid,
-                self.activity_uid,
-                self.activity_code,
-                session_start.isoformat(),
-                event_end.isoformat(),
-                duration_minutes,
-                output_path,
-            )
-        print(f"[{self.camera_uuid}/{self.activity_code}] Recording stopped")
+            # Pastikan file tidak kosong (0 bytes)
+            if os.path.getsize(output_path) > 0:
+                event_end = datetime.now()
+                duration_minutes = (event_end - session_start).total_seconds() / 60
+                self.on_finalize(
+                    self.camera_uuid,
+                    self.activity_uid,
+                    self.activity_code,
+                    session_start.isoformat(),
+                    event_end.isoformat(),
+                    duration_minutes,
+                    output_path,
+                )
+                success = True
+            else:
+                print(f"[{self.camera_uuid}/{self.activity_code}] Recording Failed: File is empty (0 bytes)")
+        else:
+            print(f"[{self.camera_uuid}/{self.activity_code}] Recording Failed: File not found at {output_path}")
+
+        if success:
+            print(f"[{self.camera_uuid}/{self.activity_code}] Recording Finished")
+        else:
+            # Jika gagal, pastikan membersihkan file kosong jika ada
+            if output_path and os.path.exists(output_path):
+                try:
+                    os.remove(output_path)
+                except:
+                    pass
 
 
 class RecordingManager:
