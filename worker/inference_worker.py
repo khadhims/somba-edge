@@ -183,7 +183,7 @@ class InferenceManager:
                         break
 
                 self.recording_manager.signal_activity(
-                    camera_uuid, activity, detected
+                    camera_uuid, activity, detected, stream_url
                 )
 
             time.sleep(0.01)

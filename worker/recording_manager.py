@@ -12,7 +12,7 @@ class CameraRecordingSession:
         camera_uuid: str,
         activity_uid: str,
         activity_code: str,
-        go2rtc_url: str,
+        stream_url: str,
         recordings_dir: str,
         post_buffer_sec: int,
         max_segment_sec: int,
@@ -21,7 +21,7 @@ class CameraRecordingSession:
         self.camera_uuid = camera_uuid
         self.activity_uid = activity_uid
         self.activity_code = activity_code
-        self.go2rtc_url = go2rtc_url.rstrip("/")
+        self.stream_url = stream_url
         self.recordings_dir = recordings_dir
         self.post_buffer_sec = post_buffer_sec
         self.max_segment_sec = max_segment_sec
@@ -64,16 +64,15 @@ class CameraRecordingSession:
             camera_dir,
             f"{self.camera_uuid}_{self.activity_code}_{timestamp}.mp4",
         )
-        stream_url = f"{self.go2rtc_url}/api/stream.mp4?src={self.camera_uuid}_main"
 
         self.ffmpeg_proc = subprocess.Popen(
             [
                 "ffmpeg",
                 "-y",
                 "-loglevel",
-                "error",
+                "warning",
                 "-i",
-                stream_url,
+                self.stream_url,
                 "-c",
                 "copy",
                 "-movflags",
@@ -81,8 +80,6 @@ class CameraRecordingSession:
                 self.output_path,
             ],
             stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
         )
         self.is_recording = True
         self.session_start = datetime.now()
@@ -190,7 +187,7 @@ class RecordingManager:
         if os.path.exists(local_path):
             os.remove(local_path)
 
-    def get_session(self, camera_uuid: str, activity: dict) -> CameraRecordingSession:
+    def get_session(self, camera_uuid: str, activity: dict, stream_url: str) -> CameraRecordingSession:
         activity_uid = activity["activity_uid"]
         recording = activity.get("recording") or {}
         session_key = self._session_key(camera_uuid, activity_uid)
@@ -201,7 +198,7 @@ class RecordingManager:
                     camera_uuid=camera_uuid,
                     activity_uid=activity_uid,
                     activity_code=str(activity.get("code", activity_uid)),
-                    go2rtc_url=self.go2rtc_url,
+                    stream_url=stream_url,
                     recordings_dir=self.recordings_dir,
                     post_buffer_sec=int(recording.get("post_buffer_sec", 10)),
                     max_segment_sec=int(recording.get("max_segment_sec", 300)),
@@ -209,8 +206,8 @@ class RecordingManager:
                 )
             return self.sessions[session_key]
 
-    def signal_activity(self, camera_uuid: str, activity: dict, active: bool):
-        session = self.get_session(camera_uuid, activity)
+    def signal_activity(self, camera_uuid: str, activity: dict, active: bool, stream_url: str):
+        session = self.get_session(camera_uuid, activity, stream_url)
         session.signal_activity(active)
 
     def start_monitor(self):
