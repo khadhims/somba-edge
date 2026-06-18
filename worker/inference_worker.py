@@ -47,10 +47,17 @@ class InferenceManager:
         )
 
     def _resolve_inference_stream(self, camera: dict) -> str | None:
+        # Prioritas 1: RTSP asli dari backend
         rtsp_url = (camera.get("rtsp_url") or "").strip()
         if rtsp_url:
             return rtsp_url
 
+        # Prioritas 2: Stream URL (biasanya .m3u8) dari backend
+        stream_url = (camera.get("stream_url") or "").strip()
+        if stream_url:
+            return stream_url
+
+        # Prioritas 3: Fallback ke go2rtc lokal via UUID (jika ada auto-config)
         camera_uuid = camera.get("camera_uuid", "")
         if camera_uuid:
             stream_name = f"{camera_uuid}_sub"

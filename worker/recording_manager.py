@@ -65,20 +65,28 @@ class CameraRecordingSession:
             f"{self.camera_uuid}_{self.activity_code}_{timestamp}.mp4",
         )
 
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "warning",
+        ]
+
+        if self.stream_url.startswith("rtsp://"):
+            ffmpeg_cmd.extend(["-rtsp_transport", "tcp"])
+
+        ffmpeg_cmd.extend([
+            "-i",
+            self.stream_url,
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            self.output_path,
+        ])
+
         self.ffmpeg_proc = subprocess.Popen(
-            [
-                "ffmpeg",
-                "-y",
-                "-loglevel",
-                "warning",
-                "-i",
-                self.stream_url,
-                "-c",
-                "copy",
-                "-movflags",
-                "+faststart",
-                self.output_path,
-            ],
+            ffmpeg_cmd,
             stdin=subprocess.PIPE,
         )
         self.is_recording = True
