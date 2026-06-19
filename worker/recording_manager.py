@@ -76,8 +76,12 @@ class CameraRecordingSession:
         ffmpeg_cmd.extend([
             "-i",
             self.stream_url,
-            "-c",
+            # MP4 does not support pcm_mulaw/G.711 audio in copy mode; record video only.
+            "-map",
+            "0:v:0",
+            "-c:v",
             "copy",
+            "-an",
             "-movflags",
             "+faststart",
             self.output_path,
@@ -127,7 +131,10 @@ class CameraRecordingSession:
         if output_path and session_start and os.path.exists(output_path):
             if os.path.getsize(output_path) > 0:
                 event_end = datetime.now()
-                duration_minutes = (event_end - session_start).total_seconds() / 60
+                duration_minutes = round(
+                    (event_end - session_start).total_seconds() / 60,
+                    1,
+                )
                 self.on_finalize(
                     self.camera_uuid,
                     self.activity,

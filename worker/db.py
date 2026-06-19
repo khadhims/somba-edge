@@ -3,6 +3,10 @@ import sqlite3
 from datetime import datetime, timezone
 
 
+def round_duration_minutes(duration_minutes: float) -> float:
+    return round(float(duration_minutes), 1)
+
+
 class EdgeStore:
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -229,6 +233,7 @@ class EdgeStore:
     ) -> int:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        normalized_duration = round_duration_minutes(duration_minutes)
         cursor.execute(
             """
             INSERT INTO recording_events (
@@ -242,7 +247,7 @@ class EdgeStore:
                 activity_type,
                 event_start,
                 event_end,
-                duration_minutes,
+                normalized_duration,
                 recording_url,
             ),
         )
@@ -274,7 +279,7 @@ class EdgeStore:
                 "activity_type": row[2],
                 "event_start": row[3],
                 "event_end": row[4],
-                "duration_minutes": row[5],
+                "duration_minutes": round_duration_minutes(row[5]),
                 "recording_url": row[6],
             }
             for row in rows
