@@ -5,6 +5,11 @@ import threading
 import time
 from datetime import datetime
 
+POST_BUFFER_SEC = int(os.getenv("RECORDING_POST_BUFFER_SEC", "90"))
+PERSON_START_FRAMES = int(os.getenv("PERSON_START_FRAMES", "25"))
+MIN_RECORDING_DURATION_SEC = int(os.getenv("MIN_RECORDING_DURATION_SEC", "180"))
+MAX_SEGMENT_SEC = int(os.getenv("RECORDING_MAX_SEGMENT_SEC", "300"))
+
 
 class CameraRecordingSession:
     def __init__(
@@ -15,6 +20,8 @@ class CameraRecordingSession:
         recordings_dir: str,
         post_buffer_sec: int,
         max_segment_sec: int,
+        person_start_frames: int,
+        min_recording_duration_sec: int,
         on_finalize,
     ):
         self.camera_uuid = camera_uuid
@@ -23,10 +30,13 @@ class CameraRecordingSession:
         self.recordings_dir = recordings_dir
         self.post_buffer_sec = post_buffer_sec
         self.max_segment_sec = max_segment_sec
+        self.person_start_frames = person_start_frames
+        self.min_recording_duration_sec = min_recording_duration_sec
         self.on_finalize = on_finalize
         self.lock = threading.Lock()
         self.is_recording = False
         self.last_activity_at = 0.0
+        self.consecutive_person_frames = 0
         self.session_start: datetime | None = None
         self.ffmpeg_proc: subprocess.Popen | None = None
         self.output_path: str | None = None
@@ -37,11 +47,15 @@ class CameraRecordingSession:
         now = time.time()
         with self.lock:
             if active:
+                self.consecutive_person_frames += 1
                 self.last_activity_at = now
-                if not self.is_recording:
+                if (
+                    not self.is_recording
+                    and self.consecutive_person_frames >= self.person_start_frames
+                ):
                     self._start_recording()
-            elif self.is_recording and now - self.last_activity_at >= self.post_buffer_sec:
-                self._stop_recording()
+            else:
+                self.consecutive_person_frames = 0
 
     def tick(self):
         with self.lock:
@@ -131,10 +145,19 @@ class CameraRecordingSession:
         if output_path and session_start and os.path.exists(output_path):
             if os.path.getsize(output_path) > 0:
                 event_end = datetime.now()
-                duration_minutes = round(
-                    (event_end - session_start).total_seconds() / 60,
-                    1,
-                )
+                duration_seconds = (event_end - session_start).total_seconds()
+                duration_minutes = round(duration_seconds / 60, 1)
+                if duration_seconds < self.min_recording_duration_sec:
+                    print(
+                        f"[{self.camera_uuid}/{self.activity}] Recording skipped: "
+                        f"duration {duration_minutes} min < "
+                        f"{self.min_recording_duration_sec / 60:.1f} min minimum"
+                    )
+                    try:
+                        os.remove(output_path)
+                    except OSError:
+                        pass
+                    return
                 self.on_finalize(
                     self.camera_uuid,
                     self.activity,
@@ -225,8 +248,10 @@ class RecordingManager:
                     activity=activity,
                     stream_url=stream_url,
                     recordings_dir=self.recordings_dir,
-                    post_buffer_sec=10,
-                    max_segment_sec=300,
+                    post_buffer_sec=POST_BUFFER_SEC,
+                    max_segment_sec=MAX_SEGMENT_SEC,
+                    person_start_frames=PERSON_START_FRAMES,
+                    min_recording_duration_sec=MIN_RECORDING_DURATION_SEC,
                     on_finalize=self._on_finalize,
                 )
             return self.sessions[camera_uuid]

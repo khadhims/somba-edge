@@ -11,6 +11,7 @@ from ultralytics import YOLO
 
 from db import EdgeStore
 from recording_manager import RecordingManager
+from violation_episode import ViolationEpisodeTracker
 
 os.environ.setdefault(
     "OPENCV_FFMPEG_CAPTURE_OPTIONS",
@@ -21,7 +22,11 @@ PERSON_MODEL = os.getenv("PERSON_MODEL", "yolov5s.pt")
 VIOLATION_MODEL = os.getenv("VIOLATION_MODEL", "best.pt")
 PERSON_CLASS = os.getenv("PERSON_CLASS", "person")
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.5"))
-VIOLATION_FRAME_INTERVAL = int(os.getenv("VIOLATION_FRAME_INTERVAL", "5"))
+VIOLATION_MIN_CONFIDENCE = float(os.getenv("VIOLATION_MIN_CONFIDENCE", "0.5"))
+VIOLATION_FRAME_INTERVAL = int(os.getenv("VIOLATION_FRAME_INTERVAL", "1"))
+VIOLATION_EPISODE_START_FRAMES = int(os.getenv("VIOLATION_EPISODE_START_FRAMES", "15"))
+VIOLATION_EPISODE_START_SEC = float(os.getenv("VIOLATION_EPISODE_START_SEC", "0.5"))
+VIOLATION_EPISODE_END_SEC = float(os.getenv("VIOLATION_EPISODE_END_SEC", "5"))
 VIOLATION_CLASSES = tuple(
     int(value.strip())
     for value in os.getenv("VIOLATION_CLASSES", "0,1,2").split(",")
@@ -54,7 +59,6 @@ class InferenceManager:
         self.active_threads: dict[str, threading.Thread] = {}
         self.stop_flags: dict[str, threading.Event] = {}
         self.camera_configs: dict[str, str] = {}
-        self.violation_cooldown: dict[str, float] = {}
 
     def _camera_config_key(self, camera: dict) -> str:
         return json.dumps(
@@ -158,7 +162,7 @@ class InferenceManager:
         model: YOLO,
         result,
         min_confidence: float,
-    ) -> tuple[bool, str | None, list[float] | None]:
+    ) -> tuple[bool, str | None, list[float] | None, float]:
         names = model.names or {}
         best_conf = 0.0
         best_name = None
@@ -174,14 +178,17 @@ class InferenceManager:
                 continue
 
             class_name = str(names.get(cls_id, cls_id))
+            if class_name.lower().startswith("yes"):
+                continue
+
             if confidence > best_conf:
                 best_conf = confidence
                 best_name = class_name
                 best_bbox = [float(v) for v in box.xyxy[0].tolist()]
 
         if best_name:
-            return True, best_name, best_bbox
-        return False, None, None
+            return True, best_name, best_bbox, best_conf
+        return False, None, None, 0.0
 
     def _upload_snapshot(self, local_path: str, camera_uuid: str) -> str | None:
         if not self.s3_client or not self.s3_bucket:
@@ -200,13 +207,8 @@ class InferenceManager:
         violation_name: str,
         bbox: list[float],
         frame,
+        detected_at: str,
     ):
-        now = time.time()
-        last = self.violation_cooldown.get(camera_uuid, 0)
-        if now - last < 10:
-            return
-        self.violation_cooldown[camera_uuid] = now
-
         os.makedirs(self.image_dir, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         local_path = os.path.join(
@@ -222,9 +224,18 @@ class InferenceManager:
             severity="high",
             bbox=bbox,
             image_url=image_url,
-            detected_at=datetime.now(timezone.utc).isoformat(),
+            detected_at=detected_at,
         )
-        print(f"[{camera_uuid}] Violation queued: {violation_name}")
+        print(f"[{camera_uuid}] Violation episode queued: {violation_name}")
+
+    def _emit_violation_episode(self, camera_uuid: str, episode: dict):
+        self._save_violation_alert(
+            camera_uuid,
+            episode["violation_name"],
+            episode["bbox"],
+            episode["frame"],
+            episode["detected_at"],
+        )
 
     def _process_camera(self, camera: dict, stop_event: threading.Event):
         camera_uuid = camera["camera_uuid"]
@@ -251,6 +262,11 @@ class InferenceManager:
         cap = self._open_capture(stream_url)
         consecutive_failures = 0
         frame_index = 0
+        violation_episode = ViolationEpisodeTracker(
+            start_frames=VIOLATION_EPISODE_START_FRAMES,
+            start_seconds=VIOLATION_EPISODE_START_SEC,
+            end_seconds=VIOLATION_EPISODE_END_SEC,
+        )
 
         while not stop_event.is_set():
             ret, frame = cap.read()
@@ -289,21 +305,41 @@ class InferenceManager:
                 with self.model_lock:
                     violation_results = violation_model(
                         frame,
-                        conf=MIN_CONFIDENCE,
+                        conf=VIOLATION_MIN_CONFIDENCE,
                         classes=list(VIOLATION_CLASSES),
                         verbose=False,
                     )
+
+                detected = False
+                violation_name = None
+                bbox = None
+                confidence = 0.0
                 for result in violation_results:
-                    detected, violation_name, bbox = self._detect_violation(
-                        violation_model, result, MIN_CONFIDENCE
+                    detected, violation_name, bbox, confidence = self._detect_violation(
+                        violation_model, result, VIOLATION_MIN_CONFIDENCE
                     )
-                    if detected and violation_name and bbox:
-                        self._save_violation_alert(
-                            camera_uuid, violation_name, bbox, frame
-                        )
+                    if detected:
                         break
 
+                episode_payload = violation_episode.observe(
+                    detected,
+                    violation_name,
+                    bbox,
+                    confidence,
+                    frame,
+                )
+                if episode_payload:
+                    self._emit_violation_episode(camera_uuid, episode_payload)
+            elif alert_enabled:
+                episode_payload = violation_episode.check_end()
+                if episode_payload:
+                    self._emit_violation_episode(camera_uuid, episode_payload)
+
             time.sleep(0.01)
+
+        episode_payload = violation_episode.flush()
+        if episode_payload:
+            self._emit_violation_episode(camera_uuid, episode_payload)
 
         cap.release()
         self.recording_manager.remove_camera(camera_uuid)

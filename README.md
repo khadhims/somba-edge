@@ -31,11 +31,32 @@ MODELS_DIR=/app/models
 PERSON_MODEL=yolov5s.pt
 VIOLATION_MODEL=best.pt
 VIOLATION_CLASSES=0,1,2
+MIN_CONFIDENCE=0.5
+VIOLATION_MIN_CONFIDENCE=0.5
+VIOLATION_EPISODE_START_FRAMES=15
+VIOLATION_EPISODE_START_SEC=0.5
+VIOLATION_EPISODE_END_SEC=5
+RECORDING_POST_BUFFER_SEC=90
+PERSON_START_FRAMES=25
+MIN_RECORDING_DURATION_SEC=180
 ```
 
 ```bash
 docker compose up -d --build
 ```
+
+### Threshold & debounce
+
+| Variabel | Default | Keterangan |
+|----------|---------|------------|
+| `MIN_CONFIDENCE` | `0.5` | Confidence deteksi `person` (rekaman) |
+| `VIOLATION_MIN_CONFIDENCE` | `0.5` | Confidence deteksi pelanggaran (`best.pt`) |
+| `VIOLATION_EPISODE_START_FRAMES` | `15` | Frame berturut-turut untuk mulai episode alert |
+| `VIOLATION_EPISODE_START_SEC` | `0.5` | Atau mulai episode setelah 0,5 detik deteksi |
+| `VIOLATION_EPISODE_END_SEC` | `5` | Episode selesai setelah 5 detik tanpa deteksi |
+| `PERSON_START_FRAMES` | `25` | Mulai rekaman setelah 25 frame `person` berturut-turut |
+| `RECORDING_POST_BUFFER_SEC` | `90` | Stop rekaman setelah `person` hilang ≥ 90 detik |
+| `MIN_RECORDING_DURATION_SEC` | `180` | Skip simpan event jika durasi < 3 menit |
 
 ## Alur Data
 
@@ -49,8 +70,12 @@ docker compose up -d --build
 
 | `alert` | Model | Output |
 |---------|-------|--------|
-| `false` | `yolov5s.pt` | Deteksi `person` → rekaman |
-| `true` | `yolov5s.pt` + `best.pt` (class `0,1,2`) | Rekaman + alert pelanggaran |
+| `false` | `yolov5s.pt` | Deteksi `person` → rekaman (debounce 25 frame, stop setelah hilang 90s) |
+| `true` | `yolov5s.pt` + `best.pt` (class `0,1,2`) | Rekaman + **satu alert per episode** pelanggaran |
+
+**Rekaman (events):** mulai setelah `person` terdeteksi 25 frame berturut-turut; berhenti setelah `person` tidak terdeteksi selama `RECORDING_POST_BUFFER_SEC` (default 90s); event tidak disimpan jika durasi < `MIN_RECORDING_DURATION_SEC` (default 3 menit).
+
+**Alert pelanggaran:** episode dimulai setelah 15 frame berturut-turut **atau** 0,5 detik deteksi; episode selesai setelah 5 detik tanpa deteksi; hanya satu alert dikirim per episode (snapshot dari deteksi confidence tertinggi).
 
 ### Sync ke server
 
