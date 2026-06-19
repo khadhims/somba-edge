@@ -22,6 +22,11 @@ VIOLATION_MODEL = os.getenv("VIOLATION_MODEL", "best.pt")
 PERSON_CLASS = os.getenv("PERSON_CLASS", "person")
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.5"))
 VIOLATION_FRAME_INTERVAL = int(os.getenv("VIOLATION_FRAME_INTERVAL", "5"))
+VIOLATION_CLASSES = tuple(
+    int(value.strip())
+    for value in os.getenv("VIOLATION_CLASSES", "0,1,2").split(",")
+    if value.strip() != ""
+)
 
 
 class InferenceManager:
@@ -165,6 +170,9 @@ class InferenceManager:
                 continue
 
             cls_id = int(box.cls[0])
+            if cls_id not in VIOLATION_CLASSES:
+                continue
+
             class_name = str(names.get(cls_id, cls_id))
             if confidence > best_conf:
                 best_conf = confidence
@@ -280,7 +288,10 @@ class InferenceManager:
             if alert_enabled and violation_model and frame_index % VIOLATION_FRAME_INTERVAL == 0:
                 with self.model_lock:
                     violation_results = violation_model(
-                        frame, conf=MIN_CONFIDENCE, verbose=False
+                        frame,
+                        conf=MIN_CONFIDENCE,
+                        classes=list(VIOLATION_CLASSES),
+                        verbose=False,
                     )
                 for result in violation_results:
                     detected, violation_name, bbox = self._detect_violation(

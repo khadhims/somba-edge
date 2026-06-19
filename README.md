@@ -30,6 +30,7 @@ GO2RTC_URL=http://go2rtc:1988
 MODELS_DIR=/app/models
 PERSON_MODEL=yolov5s.pt
 VIOLATION_MODEL=best.pt
+VIOLATION_CLASSES=0,1,2
 ```
 
 ```bash
@@ -49,7 +50,7 @@ docker compose up -d --build
 | `alert` | Model | Output |
 |---------|-------|--------|
 | `false` | `yolov5s.pt` | Deteksi `person` → rekaman |
-| `true` | `yolov5s.pt` + `best.pt` | Rekaman + alert pelanggaran |
+| `true` | `yolov5s.pt` + `best.pt` (class `0,1,2`) | Rekaman + alert pelanggaran |
 
 ### Sync ke server
 
