@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class EdgeStore:
@@ -11,6 +11,19 @@ class EdgeStore:
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS master_cameras (
+                camera_uuid TEXT PRIMARY KEY,
+                name TEXT,
+                rtsp_url TEXT,
+                stream_url TEXT,
+                activity TEXT NOT NULL,
+                alert INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS alerts (
@@ -47,10 +60,86 @@ class EdgeStore:
     def _ensure_recording_event_columns(self, cursor):
         cursor.execute("PRAGMA table_info(recording_events)")
         columns = {row[1] for row in cursor.fetchall()}
-        if "activity_uid" not in columns:
+        if "activity_uid" in columns and "activity_type" not in columns:
             cursor.execute(
-                "ALTER TABLE recording_events ADD COLUMN activity_uid TEXT"
+                "ALTER TABLE recording_events RENAME COLUMN activity_uid TO activity_type"
             )
+        elif "activity_type" not in columns:
+            cursor.execute(
+                "ALTER TABLE recording_events ADD COLUMN activity_type TEXT"
+            )
+
+    def upsert_master_cameras(self, rows: list[dict]):
+        if not rows:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        for row in rows:
+            cursor.execute(
+                """
+                INSERT INTO master_cameras (
+                    camera_uuid, name, rtsp_url, stream_url, activity, alert, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(camera_uuid) DO UPDATE SET
+                    name = excluded.name,
+                    rtsp_url = excluded.rtsp_url,
+                    stream_url = excluded.stream_url,
+                    activity = excluded.activity,
+                    alert = excluded.alert,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    row["camera_uuid"],
+                    row.get("name"),
+                    row.get("rtsp_url"),
+                    row.get("stream_url"),
+                    row["activity"],
+                    1 if row.get("alert") else 0,
+                    now,
+                ),
+            )
+        conn.commit()
+        conn.close()
+
+    def delete_stale_master_cameras(self, active_uuids: list[str]):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        if not active_uuids:
+            cursor.execute("DELETE FROM master_cameras")
+        else:
+            placeholders = ",".join("?" for _ in active_uuids)
+            cursor.execute(
+                f"DELETE FROM master_cameras WHERE camera_uuid NOT IN ({placeholders})",
+                active_uuids,
+            )
+        conn.commit()
+        conn.close()
+
+    def list_master_cameras(self) -> list[dict]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT camera_uuid, name, rtsp_url, stream_url, activity, alert
+            FROM master_cameras
+            ORDER BY name ASC
+            """
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [
+            {
+                "camera_uuid": row[0],
+                "name": row[1],
+                "rtsp_url": row[2],
+                "stream_url": row[3],
+                "activity": row[4],
+                "alert": bool(row[5]),
+            }
+            for row in rows
+        ]
 
     def save_alert(
         self,
@@ -132,7 +221,6 @@ class EdgeStore:
     def save_recording_event(
         self,
         camera_id: str,
-        activity_uid: str,
         activity_type: str,
         event_start: str,
         event_end: str,
@@ -144,14 +232,13 @@ class EdgeStore:
         cursor.execute(
             """
             INSERT INTO recording_events (
-                camera_id, activity_uid, activity_type, event_start, event_end,
+                camera_id, activity_type, event_start, event_end,
                 duration_minutes, recording_url, sync_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+            VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
             """,
             (
                 camera_id,
-                activity_uid,
                 activity_type,
                 event_start,
                 event_end,
@@ -169,7 +256,7 @@ class EdgeStore:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT id, camera_id, activity_uid, activity_type, event_start, event_end, duration_minutes, recording_url
+            SELECT id, camera_id, activity_type, event_start, event_end, duration_minutes, recording_url
             FROM recording_events
             WHERE sync_status = 'PENDING'
             ORDER BY id ASC
@@ -184,12 +271,11 @@ class EdgeStore:
             {
                 "edge_id": row[0],
                 "camera_uuid": row[1],
-                "activity_uid": row[2],
-                "activity_type": row[3],
-                "event_start": row[4],
-                "event_end": row[5],
-                "duration_minutes": row[6],
-                "recording_url": row[7],
+                "activity_type": row[2],
+                "event_start": row[3],
+                "event_end": row[4],
+                "duration_minutes": row[5],
+                "recording_url": row[6],
             }
             for row in rows
         ]

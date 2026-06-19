@@ -50,6 +50,7 @@ def main():
     orchestrator = CameraOrchestrator(
         server_api_url=SERVER_API_URL,
         edge_api_key=EDGE_API_KEY,
+        edge_store=edge_store,
     )
     recording_manager = RecordingManager(
         go2rtc_url=GO2RTC_URL,
@@ -66,6 +67,10 @@ def main():
         edge_store=edge_store,
         recording_manager=recording_manager,
         models_dir=MODELS_DIR,
+        image_dir=IMAGE_DIR,
+        s3_client=s3_client,
+        s3_bucket=S3_BUCKET,
+        s3_endpoint=S3_ENDPOINT,
     )
     worker = EdgeWorkerClient(
         server_ws_url=SERVER_WS_URL,

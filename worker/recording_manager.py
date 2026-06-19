@@ -10,8 +10,7 @@ class CameraRecordingSession:
     def __init__(
         self,
         camera_uuid: str,
-        activity_uid: str,
-        activity_code: str,
+        activity: str,
         stream_url: str,
         recordings_dir: str,
         post_buffer_sec: int,
@@ -19,8 +18,7 @@ class CameraRecordingSession:
         on_finalize,
     ):
         self.camera_uuid = camera_uuid
-        self.activity_uid = activity_uid
-        self.activity_code = activity_code
+        self.activity = activity
         self.stream_url = stream_url
         self.recordings_dir = recordings_dir
         self.post_buffer_sec = post_buffer_sec
@@ -62,7 +60,7 @@ class CameraRecordingSession:
         os.makedirs(camera_dir, exist_ok=True)
         self.output_path = os.path.join(
             camera_dir,
-            f"{self.camera_uuid}_{self.activity_code}_{timestamp}.mp4",
+            f"{self.camera_uuid}_{self.activity}_{timestamp}.mp4",
         )
 
         ffmpeg_cmd = [
@@ -92,7 +90,7 @@ class CameraRecordingSession:
         self.is_recording = True
         self.session_start = datetime.now()
         print(
-            f"[{self.camera_uuid}/{self.activity_code}] Recording started → {self.output_path}"
+            f"[{self.camera_uuid}/{self.activity}] Recording started → {self.output_path}"
         )
 
     def _stop_recording(self):
@@ -123,19 +121,16 @@ class CameraRecordingSession:
                 except Exception:
                     proc.kill()
 
-        # Beri jeda singkat agar OS selesai menulis file ke disk
         time.sleep(1)
 
         success = False
         if output_path and session_start and os.path.exists(output_path):
-            # Pastikan file tidak kosong (0 bytes)
             if os.path.getsize(output_path) > 0:
                 event_end = datetime.now()
                 duration_minutes = (event_end - session_start).total_seconds() / 60
                 self.on_finalize(
                     self.camera_uuid,
-                    self.activity_uid,
-                    self.activity_code,
+                    self.activity,
                     session_start.isoformat(),
                     event_end.isoformat(),
                     duration_minutes,
@@ -143,19 +138,21 @@ class CameraRecordingSession:
                 )
                 success = True
             else:
-                print(f"[{self.camera_uuid}/{self.activity_code}] Recording Failed: File is empty (0 bytes)")
+                print(
+                    f"[{self.camera_uuid}/{self.activity}] Recording Failed: File is empty (0 bytes)"
+                )
         else:
-            print(f"[{self.camera_uuid}/{self.activity_code}] Recording Failed: File not found at {output_path}")
+            print(
+                f"[{self.camera_uuid}/{self.activity}] Recording Failed: File not found at {output_path}"
+            )
 
         if success:
-            print(f"[{self.camera_uuid}/{self.activity_code}] Recording Finished")
-        else:
-            # Jika gagal, pastikan membersihkan file kosong jika ada
-            if output_path and os.path.exists(output_path):
-                try:
-                    os.remove(output_path)
-                except:
-                    pass
+            print(f"[{self.camera_uuid}/{self.activity}] Recording Finished")
+        elif output_path and os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
 
 
 class RecordingManager:
@@ -177,9 +174,6 @@ class RecordingManager:
         self.sessions: dict[str, CameraRecordingSession] = {}
         self.lock = threading.Lock()
 
-    def _session_key(self, camera_uuid: str, activity_uid: str) -> str:
-        return f"{camera_uuid}:{activity_uid}"
-
     def _upload_recording(self, local_path: str, camera_uuid: str) -> str | None:
         object_name = f"recordings/{camera_uuid}/{os.path.basename(local_path)}"
         try:
@@ -192,8 +186,7 @@ class RecordingManager:
     def _on_finalize(
         self,
         camera_uuid: str,
-        activity_uid: str,
-        activity_code: str,
+        activity: str,
         event_start: str,
         event_end: str,
         duration_minutes: float,
@@ -206,38 +199,32 @@ class RecordingManager:
 
         event_id = self.edge_store.save_recording_event(
             camera_uuid,
-            activity_uid,
-            activity_code,
+            activity,
             event_start,
             event_end,
             duration_minutes,
             recording_url,
         )
-        print(f"[{camera_uuid}/{activity_code}] Recording event #{event_id} queued for sync")
+        print(f"[{camera_uuid}/{activity}] Recording event #{event_id} queued for sync")
 
         if os.path.exists(local_path):
             os.remove(local_path)
 
-    def get_session(self, camera_uuid: str, activity: dict, stream_url: str) -> CameraRecordingSession:
-        activity_uid = activity["activity_uid"]
-        recording = activity.get("recording") or {}
-        session_key = self._session_key(camera_uuid, activity_uid)
-
+    def get_session(self, camera_uuid: str, activity: str, stream_url: str) -> CameraRecordingSession:
         with self.lock:
-            if session_key not in self.sessions:
-                self.sessions[session_key] = CameraRecordingSession(
+            if camera_uuid not in self.sessions:
+                self.sessions[camera_uuid] = CameraRecordingSession(
                     camera_uuid=camera_uuid,
-                    activity_uid=activity_uid,
-                    activity_code=str(activity.get("code", activity_uid)),
+                    activity=activity,
                     stream_url=stream_url,
                     recordings_dir=self.recordings_dir,
-                    post_buffer_sec=int(recording.get("post_buffer_sec", 10)),
-                    max_segment_sec=int(recording.get("max_segment_sec", 300)),
+                    post_buffer_sec=10,
+                    max_segment_sec=300,
                     on_finalize=self._on_finalize,
                 )
-            return self.sessions[session_key]
+            return self.sessions[camera_uuid]
 
-    def signal_activity(self, camera_uuid: str, activity: dict, active: bool, stream_url: str):
+    def signal_activity(self, camera_uuid: str, activity: str, active: bool, stream_url: str):
         session = self.get_session(camera_uuid, activity, stream_url)
         session.signal_activity(active)
 
@@ -255,8 +242,6 @@ class RecordingManager:
 
     def remove_camera(self, camera_uuid: str):
         with self.lock:
-            keys = [key for key in self.sessions if key.startswith(f"{camera_uuid}:")]
-            removed = [self.sessions.pop(key) for key in keys]
-        for session in removed:
-            if session.is_recording:
-                session._stop_recording()
+            session = self.sessions.pop(camera_uuid, None)
+        if session and session.is_recording:
+            session._stop_recording()
