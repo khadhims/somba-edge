@@ -38,7 +38,6 @@ class EdgeStore:
                 detected_at DATETIME,
                 bbox TEXT,
                 image_url TEXT,
-                recording_event_id TEXT,
                 sync_status TEXT DEFAULT 'PENDING'
             )
             """
@@ -153,7 +152,6 @@ class EdgeStore:
         bbox: list,
         image_url: str,
         detected_at: str,
-        recording_event_id: str | None = None,
     ) -> int:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -161,9 +159,9 @@ class EdgeStore:
             """
             INSERT INTO alerts (
                 camera_id, violation_name, severity, detected_at,
-                bbox, image_url, recording_event_id, sync_status
+                bbox, image_url, sync_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+            VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
             """,
             (
                 camera_id,
@@ -172,7 +170,6 @@ class EdgeStore:
                 detected_at,
                 json.dumps(bbox),
                 image_url,
-                recording_event_id,
             ),
         )
         alert_id = cursor.lastrowid
@@ -185,7 +182,7 @@ class EdgeStore:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT id, camera_id, violation_name, severity, detected_at, bbox, image_url, recording_event_id
+            SELECT id, camera_id, violation_name, severity, detected_at, bbox, image_url
             FROM alerts
             WHERE sync_status = 'PENDING'
             ORDER BY id ASC
@@ -205,7 +202,6 @@ class EdgeStore:
                 "detected_at": row[4],
                 "bbox": json.loads(row[5]),
                 "image_url": row[6],
-                "recording_event_id": row[7],
             }
             for row in rows
         ]
