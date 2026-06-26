@@ -1,13 +1,16 @@
 import os
 
 import boto3
+from botocore.config import Config
 from dotenv import load_dotenv
 
-from db import EdgeStore
+from paths import resolve_storage_path
+from s3_upload import resolve_api_bucket_name
 from inference_worker import InferenceManager
 from orchestrator import CameraOrchestrator
 from recording_manager import RecordingManager
 from ws_client import EdgeWorkerClient
+from db import EdgeStore
 
 load_dotenv()
 
@@ -17,8 +20,8 @@ EDGE_API_KEY = os.getenv("EDGE_API_KEY", "")
 GO2RTC_URL = os.getenv("GO2RTC_URL", "http://go2rtc:1984")
 MODELS_DIR = os.getenv("MODELS_DIR", "/app/models")
 DB_PATH = os.getenv("DB_PATH", "/app/data/db/edge.db")
-IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/data/images")
-RECORDINGS_PATH = os.getenv("RECORDINGS_PATH", "/app/data/recordings")
+IMAGE_DIR = resolve_storage_path(os.getenv("IMAGE_DIR"), "images")
+RECORDINGS_PATH = resolve_storage_path(os.getenv("RECORDINGS_PATH"), "recordings")
 SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", "5"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "50"))
 
@@ -38,13 +41,16 @@ def main():
     os.makedirs(RECORDINGS_PATH, exist_ok=True)
     os.makedirs(MODELS_DIR, exist_ok=True)
 
+    s3_config = Config(signature_version="s3v4", s3={"addressing_style": "path"})
     s3_client = boto3.client(
         "s3",
         endpoint_url=S3_ENDPOINT,
         aws_access_key_id=S3_ACCESS_KEY,
         aws_secret_access_key=S3_SECRET_KEY,
         region_name=S3_REGION,
+        config=s3_config,
     )
+    s3_bucket = resolve_api_bucket_name(S3_BUCKET or "")
 
     edge_store = EdgeStore(DB_PATH)
     orchestrator = CameraOrchestrator(
@@ -57,8 +63,9 @@ def main():
         recordings_dir=RECORDINGS_PATH,
         edge_store=edge_store,
         s3_client=s3_client,
-        s3_bucket=S3_BUCKET,
-        s3_endpoint=S3_ENDPOINT,
+        s3_bucket=s3_bucket,
+        s3_endpoint=S3_ENDPOINT or "",
+        s3_access_key=S3_ACCESS_KEY,
     )
     recording_manager.start_monitor()
 
@@ -69,9 +76,12 @@ def main():
         models_dir=MODELS_DIR,
         image_dir=IMAGE_DIR,
         s3_client=s3_client,
-        s3_bucket=S3_BUCKET,
+        s3_bucket=s3_bucket,
         s3_endpoint=S3_ENDPOINT,
+        s3_access_key=S3_ACCESS_KEY,
     )
+    inference_manager.warmup_models()
+
     worker = EdgeWorkerClient(
         server_ws_url=SERVER_WS_URL,
         edge_api_key=EDGE_API_KEY,
