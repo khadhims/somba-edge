@@ -22,6 +22,8 @@ services:
         REQUIREMENTS_FILE: ${REQUIREMENTS_FILE:-requirements.txt}
     container_name: somba-edge-worker
     restart: unless-stopped
+    env_file:
+      - .env
     volumes:
       - ./data:/app/data
       - ./models:/app/models
@@ -41,5 +43,14 @@ services:
       - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_BUCKET=${S3_BUCKET}
       - S3_REGION=${S3_REGION}
+      - EDGE_DEV_MODE=${EDGE_DEV_MODE:-false}
+      - GO2RTC_RTSP_HOST=${GO2RTC_RTSP_HOST:-go2rtc}
+      - GO2RTC_RTSP_PORT=${GO2RTC_RTSP_PORT:-8558}
+      - DEV_CAPTURE_WIDTH=${DEV_CAPTURE_WIDTH:-1280}
+      - DEV_CAPTURE_HEIGHT=${DEV_CAPTURE_HEIGHT:-720}
+      - YOLO_CONFIG_DIR=/tmp/Ultralytics
+      - WORKER_STAGGER_SEC=${WORKER_STAGGER_SEC:-2}
+      - PERSON_MODEL=${PERSON_MODEL:-yolov5su.pt}
+      - VIOLATION_MODEL=${VIOLATION_MODEL:-best.pt}
     depends_on:
       - go2rtc

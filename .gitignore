@@ -11,3 +11,6 @@ __pycache__/
 *.pyzw
 data/
 *.ipynb
+images/
+recordings/
+manual_s3_upload.py

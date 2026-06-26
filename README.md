@@ -57,6 +57,31 @@ docker compose up -d --build
 | `PERSON_START_FRAMES` | `25` | Mulai rekaman setelah 25 frame `person` berturut-turut |
 | `RECORDING_POST_BUFFER_SEC` | `90` | Stop rekaman setelah `person` hilang ≥ 90 detik |
 | `MIN_RECORDING_DURATION_SEC` | `180` | Skip simpan event jika durasi < 3 menit |
+| `RECORDING_CRF` | `28` | Kualitas H.264 setelah transcode (lebih kecil = lebih bagus) |
+| `RECORDING_MAX_WIDTH` | `1280` | Lebar maksimum video hasil transcode |
+| `RECORDING_ENCODE_PRESET` | `fast` | Preset x264 (`ultrafast` … `slow`) |
+
+Upload ke S3 memakai `Content-Type` yang benar (`image/jpeg`, `video/mp4`) dan **path-style addressing** (wajib untuk Contabo). URL publik dibangun otomatis: `https://{region}.contabostorage.com/{tenantId}:{bucket}/{key}` — tenant ID diambil dari `S3_ACCESS_KEY`. Pastikan bucket di panel Contabo sudah **Public Sharing** aktif. Rekaman di-transcode ke **H.264 + yuv420p + faststart** sebelum upload agar kompatibel browser dan ukuran lebih kecil.
+
+### Mode development (`EDGE_DEV_MODE=true`)
+
+Jika `rtsp_url` kamera berupa **go2rtc RTSP** (port `8558`, contoh `rtsp://host:8558/cam-12?video=all&audio=all`):
+
+- **Inferensi** — decode stream via FFmpeg pipe (kompatibel HEVC/H.264 dari go2rtc)
+- **Rekaman** — encode langsung ke **H.264** (`libx264`), bukan stream copy
+- Host RTSP bisa di-rewrite dengan `GO2RTC_RTSP_HOST` (mis. `go2rtc` di Docker)
+- **Penyimpanan lokal** — `IMAGE_DIR` dan `RECORDINGS_PATH` diarahkan otomatis ke `data/images` dan `data/recordings` (di dalam repo `somba-edge/`)
+- **Upload S3** — tetap berjalan; salinan lokal alert dan rekaman **tidak dihapus** setelah upload
+
+Struktur file lokal (folder memakai **nama kamera**, bukan UUID):
+
+```
+data/
+├── images/{nama_kamera}/{nama_kamera}_{pelanggaran}_{timestamp}.jpg   # dengan bbox
+└── recordings/{nama_kamera}/{nama_kamera}_{aktivitas}_{timestamp}.mp4
+```
+
+Di production biarkan `EDGE_DEV_MODE=false` (default).
 
 ## Alur Data
 
@@ -73,9 +98,9 @@ docker compose up -d --build
 | `false` | `yolov5s.pt` | Deteksi `person` → rekaman (debounce 25 frame, stop setelah hilang 90s) |
 | `true` | `yolov5s.pt` + `best.pt` (class `0,1,2`) | Rekaman + **satu alert per episode** pelanggaran |
 
-**Rekaman (events):** mulai setelah `person` terdeteksi 25 frame berturut-turut; berhenti setelah `person` tidak terdeteksi selama `RECORDING_POST_BUFFER_SEC` (default 90s); event tidak disimpan jika durasi < `MIN_RECORDING_DURATION_SEC` (default 3 menit).
+**Rekaman (events):** mulai setelah `person` terdeteksi 25 frame berturut-turut; berhenti setelah `person` tidak terdeteksi selama `RECORDING_POST_BUFFER_SEC` (default 90s); event tidak disimpan jika durasi < `MIN_RECORDING_DURATION_SEC` (default 3 menit). Setelah stop, FFmpeg dihentikan dengan SIGINT, lalu file di-transcode ke H.264 sebelum upload S3.
 
-**Alert pelanggaran:** episode dimulai setelah 15 frame berturut-turut **atau** 0,5 detik deteksi; episode selesai setelah 5 detik tanpa deteksi; hanya satu alert dikirim per episode (snapshot dari deteksi confidence tertinggi).
+**Alert pelanggaran:** episode dimulai setelah 15 frame berturut-turut **atau** 0,5 detik deteksi; episode selesai setelah 5 detik tanpa deteksi; hanya satu alert dikirim per episode (snapshot frame confidence tertinggi **dengan bbox** yang digambar pada gambar).
 
 ### Sync ke server
 
