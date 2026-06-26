@@ -38,6 +38,9 @@ class EdgeStore:
                 detected_at DATETIME,
                 bbox TEXT,
                 image_url TEXT,
+                event_start DATETIME,
+                event_end DATETIME,
+                total_detections INTEGER DEFAULT 1,
                 sync_status TEXT DEFAULT 'PENDING'
             )
             """
@@ -57,8 +60,21 @@ class EdgeStore:
             """
         )
         self._ensure_recording_event_columns(cursor)
+        self._ensure_alert_columns(cursor)
         conn.commit()
         conn.close()
+
+    def _ensure_alert_columns(self, cursor):
+        cursor.execute("PRAGMA table_info(alerts)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "event_start" not in columns:
+            cursor.execute("ALTER TABLE alerts ADD COLUMN event_start DATETIME")
+        if "event_end" not in columns:
+            cursor.execute("ALTER TABLE alerts ADD COLUMN event_end DATETIME")
+        if "total_detections" not in columns:
+            cursor.execute(
+                "ALTER TABLE alerts ADD COLUMN total_detections INTEGER DEFAULT 1"
+            )
 
     def _ensure_recording_event_columns(self, cursor):
         cursor.execute("PRAGMA table_info(recording_events)")
@@ -152,6 +168,9 @@ class EdgeStore:
         bbox: list,
         image_url: str,
         detected_at: str,
+        event_start: str | None = None,
+        event_end: str | None = None,
+        total_detections: int = 1,
     ) -> int:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -159,9 +178,10 @@ class EdgeStore:
             """
             INSERT INTO alerts (
                 camera_id, violation_name, severity, detected_at,
-                bbox, image_url, sync_status
+                bbox, image_url, event_start, event_end, total_detections,
+                sync_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
             """,
             (
                 camera_id,
@@ -170,6 +190,9 @@ class EdgeStore:
                 detected_at,
                 json.dumps(bbox),
                 image_url,
+                event_start,
+                event_end,
+                total_detections,
             ),
         )
         alert_id = cursor.lastrowid
@@ -182,7 +205,8 @@ class EdgeStore:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT id, camera_id, violation_name, severity, detected_at, bbox, image_url
+            SELECT id, camera_id, violation_name, severity, detected_at, bbox,
+                   image_url, event_start, event_end, total_detections
             FROM alerts
             WHERE sync_status = 'PENDING'
             ORDER BY id ASC
@@ -202,6 +226,9 @@ class EdgeStore:
                 "detected_at": row[4],
                 "bbox": json.loads(row[5]),
                 "image_url": row[6],
+                "event_start": row[7],
+                "event_end": row[8],
+                "total_detections": row[9],
             }
             for row in rows
         ]
