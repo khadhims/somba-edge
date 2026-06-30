@@ -82,6 +82,31 @@ def transcode_recording(raw_path: str, output_path: str) -> bool:
     return is_valid_media(output_path)
 
 
+def extract_snapshot(video_path: str, output_path: str, offset_seconds: float = 1.0) -> bool:
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-nostdin",
+        "-loglevel",
+        "warning",
+        "-ss",
+        str(offset_seconds),
+        "-i",
+        video_path,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "2",
+        output_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
+    return (
+        result.returncode == 0
+        and os.path.isfile(output_path)
+        and os.path.getsize(output_path) > 0
+    )
+
+
 def remux_with_faststart(input_path: str, output_path: str) -> bool:
     cmd = [
         "ffmpeg",

@@ -10,6 +10,7 @@ from filename_utils import camera_file_slug, sanitize_filename_part
 from media_utils import (
     RECORDING_CRF,
     RECORDING_ENCODE_PRESET,
+    extract_snapshot,
     is_valid_media,
     remux_with_faststart,
     stop_ffmpeg_gracefully,
@@ -320,6 +321,32 @@ class RecordingManager:
         self.lock = threading.Lock()
         _cleanup_orphan_raw_files(self.recordings_dir)
 
+    def _extract_and_upload_snapshot(self, video_path: str, camera_slug: str) -> str:
+        fd, temp_path = tempfile.mkstemp(suffix=".jpg")
+        os.close(fd)
+        try:
+            if not extract_snapshot(video_path, temp_path):
+                print(f"[{camera_slug}] Snapshot extraction failed")
+                return ""
+            basename = os.path.splitext(os.path.basename(video_path))[0] + ".jpg"
+            object_name = f"snapshots/{camera_slug}/{basename}"
+            return s3_upload_file(
+                self.s3_client,
+                temp_path,
+                self.s3_bucket,
+                object_name,
+                self.s3_endpoint,
+                access_key=self.s3_access_key,
+            )
+        except Exception as exc:
+            print(f"[{camera_slug}] Snapshot upload error: {exc}")
+            return ""
+        finally:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
     def _upload_recording(self, local_path: str, camera_slug: str) -> str | None:
         basename = os.path.basename(local_path)
         if "_raw" in basename:
@@ -357,6 +384,8 @@ class RecordingManager:
             print(f"[{camera_slug}] Failed to upload recording, keeping local file")
             return
 
+        image_url = self._extract_and_upload_snapshot(local_path, camera_slug)
+
         event_id = self.edge_store.save_recording_event(
             camera_uuid,
             activity,
@@ -364,6 +393,7 @@ class RecordingManager:
             event_end,
             duration_minutes,
             recording_url,
+            image_url,
         )
         print(f"[{camera_slug}/{activity}] Recording event #{event_id} queued for sync")
 

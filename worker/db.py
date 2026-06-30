@@ -55,6 +55,7 @@ class EdgeStore:
                 event_end DATETIME,
                 duration_minutes REAL,
                 recording_url TEXT,
+                image_url TEXT NOT NULL DEFAULT '',
                 sync_status TEXT DEFAULT 'PENDING'
             )
             """
@@ -86,6 +87,10 @@ class EdgeStore:
         elif "activity_type" not in columns:
             cursor.execute(
                 "ALTER TABLE recording_events ADD COLUMN activity_type TEXT"
+            )
+        if "image_url" not in columns:
+            cursor.execute(
+                "ALTER TABLE recording_events ADD COLUMN image_url TEXT NOT NULL DEFAULT ''"
             )
 
     def upsert_master_cameras(self, rows: list[dict]):
@@ -253,6 +258,7 @@ class EdgeStore:
         event_end: str,
         duration_minutes: float,
         recording_url: str,
+        image_url: str,
     ) -> int:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -261,9 +267,9 @@ class EdgeStore:
             """
             INSERT INTO recording_events (
                 camera_id, activity_type, event_start, event_end,
-                duration_minutes, recording_url, sync_status
+                duration_minutes, recording_url, image_url, sync_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
             """,
             (
                 camera_id,
@@ -272,6 +278,7 @@ class EdgeStore:
                 event_end,
                 normalized_duration,
                 recording_url,
+                image_url,
             ),
         )
         event_id = cursor.lastrowid
@@ -284,7 +291,7 @@ class EdgeStore:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT id, camera_id, activity_type, event_start, event_end, duration_minutes, recording_url
+            SELECT id, camera_id, activity_type, event_start, event_end, duration_minutes, recording_url, image_url
             FROM recording_events
             WHERE sync_status = 'PENDING'
             ORDER BY id ASC
@@ -304,6 +311,7 @@ class EdgeStore:
                 "event_end": row[4],
                 "duration_minutes": round_duration_minutes(row[5]),
                 "recording_url": row[6],
+                "image_url": row[7],
             }
             for row in rows
         ]
