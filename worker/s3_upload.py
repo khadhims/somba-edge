@@ -65,6 +65,6 @@ def upload_file(
         local_path,
         api_bucket,
         object_key,
-        ExtraArgs={"ContentType": content_type, "ACL": "public-read"},
+        ExtraArgs={"ContentType": content_type},
     )
     return build_public_url(public_base, object_key)
