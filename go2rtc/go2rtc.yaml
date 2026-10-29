@@ -18,3 +18,5 @@ streams:
   - ffmpeg:rtsp://eduguard:3dugu4rd21@172.16.40.2:554/cam/realmonitor?channel=19&subtype=0#input=rtsp/tcp#video=copy#audio=copy
   cam-05:
   - ffmpeg:rtsp://eduguard:3dugu4rd21@172.16.40.2:554/cam/realmonitor?channel=23&subtype=0#input=rtsp/tcp#video=copy#audio=copy
+  cam-demo:
+  - exec:ffmpeg -re -stream_loop -1 -i /media/demo/sample.mp4 -c copy -f rtsp {output}

@@ -11,6 +11,7 @@ services:
     volumes:
       - ./go2rtc/go2rtc.yaml:/config/go2rtc.yaml
       - ./data/recordings:/app/data/recordings
+      - ./demo-videos:/media/demo:ro
     environment:
       - TZ=UTC
 
